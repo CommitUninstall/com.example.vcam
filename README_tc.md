@@ -1,6 +1,6 @@
 # android_virtual_cam
 
-[简体中文](./README.md) | [繁體中文](./README_tc.md) | [English](./README_en.md)
+[简体中文](README_ch.md) | [繁體中文](./README_tc.md) | [English](README.md)
 
 基於Xposed的虛擬攝影機
 

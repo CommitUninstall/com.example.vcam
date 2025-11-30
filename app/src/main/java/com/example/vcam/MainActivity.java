@@ -222,7 +222,7 @@ public class MainActivity extends Activity {
 
 
     private void sync_statue_with_files() {
-        Log.d(this.getApplication().getPackageName(), "【VCAM】[sync]同步开关状态");
+        Log.d(this.getApplication().getPackageName(), "[VCAM] [sync]Synchronizing switch states");
 
         if (!has_permission()){
             request_permission();
