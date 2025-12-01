@@ -27,15 +27,15 @@ jobs:
       run: ./gradlew clean
 
     - name: Build APK
-      run: ./gradlew assembleRelease
+      run: ./gradlew assembleDebug
 
 #    - name: List APK output
 #      run: ls -R app/build/outputs/apk/release/
 
-    - name: Upload release APK (v4)
+    - name: Upload Debug APK (v4)
       uses: actions/upload-artifact@v4
       with:
         name: VCam
-        path: app/build/outputs/apk/release/app-release*.apk
+        path: app/build/outputs/apk/debug/app-debug*.apk
         if-no-files-found: error  # Optional, fail if file not found
         overwrite: true           # Important for v4
