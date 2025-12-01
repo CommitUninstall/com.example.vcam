@@ -57,7 +57,7 @@ public class VideoToFrames implements Runnable {
         mQueue = queue;
     }
 
-    //设置输出位置，没啥用
+    //Set output location, not really used
     public void setSaveFrames(String dir, OutputImageFormat imageFormat) throws IOException {
         outputImageFormat = imageFormat;
 
@@ -94,7 +94,7 @@ public class VideoToFrames implements Runnable {
 
     @SuppressLint("WrongConstant")
     public void videoDecode(String videoFilePath) throws IOException {
-        XposedBridge.log("【VCAM】【decoder】开始解码");
+        XposedBridge.log("[VCAM] [decoder] Starting decode");
         MediaExtractor extractor = null;
         MediaCodec decoder = null;
         try {
@@ -103,7 +103,7 @@ public class VideoToFrames implements Runnable {
             extractor.setDataSource(videoFilePath);
             int trackIndex = selectTrack(extractor);
             if (trackIndex < 0) {
-                XposedBridge.log("【VCAM】【decoder】No video track found in " + videoFilePath);
+                XposedBridge.log("[VCAM][decoder] No video track found in " + videoFilePath);
             }
             extractor.selectTrack(trackIndex);
             MediaFormat mediaFormat = extractor.getTrackFormat(trackIndex);
@@ -112,11 +112,13 @@ public class VideoToFrames implements Runnable {
             showSupportedColorFormat(decoder.getCodecInfo().getCapabilitiesForType(mime));
             if (isColorFormatSupported(decodeColorFormat, decoder.getCodecInfo().getCapabilitiesForType(mime))) {
                 mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, decodeColorFormat);
-                XposedBridge.log("【VCAM】【decoder】set decode color format to type " + decodeColorFormat);
+                XposedBridge.log("[VCAM] [decoder] set decode color format to type " + decodeColorFormat);
             } else {
                 Log.i(TAG, "unable to set decode color format, color format type " + decodeColorFormat + " not supported");
-                XposedBridge.log("【VCAM】【decoder】unable to set decode color format, color format type " + decodeColorFormat + " not supported");
+                XposedBridge.log("[VCAM] [decoder] unable to set decode color format, color format type " + decodeColorFormat + " not supported");
             }
+            XposedBridge.log("[VCAM] [DEBUG] About to start decodeFramesToImage with surface: " + (play_surf != null ? "valid" : "null"));
+
             decodeFramesToImage(decoder, extractor, mediaFormat);
             decoder.stop();
             while (!stopDecode) {
@@ -125,7 +127,21 @@ public class VideoToFrames implements Runnable {
                 decoder.stop();
             }
         }catch (Exception e){
-            XposedBridge.log("【VCAM】[videofile]"+ e.toString());
+            XposedBridge.log("[VCAM][ERROR] VideoDecoder error: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+
+            // Print detailed stack trace
+            StackTraceElement[] stackTrace = e.getStackTrace();
+            for (int i = 0; i < Math.min(stackTrace.length, 8); i++) {
+                XposedBridge.log("[VCAM] [STACK] " + stackTrace[i].toString());
+            }
+
+            try {
+                File videoFile = new File(videoFilePath);
+                XposedBridge.log("[VCAM] [DEBUG] Video file info - exists: " + videoFile.exists() +
+                        " canRead: " + videoFile.canRead() + " length: " + videoFile.length());
+            } catch (Exception fileEx) {
+                XposedBridge.log("[VCAM] [DEBUG] Could not check video file: " + fileEx.getMessage());
+            }
         } finally {
             if (decoder != null) {
                 decoder.stop();
@@ -138,6 +154,7 @@ public class VideoToFrames implements Runnable {
             }
         }
     }
+
 
     private void showSupportedColorFormat(MediaCodecInfo.CodecCapabilities caps) {
         System.out.print("supported color format: ");
@@ -161,9 +178,28 @@ public class VideoToFrames implements Runnable {
         long startWhen = 0;
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
         decoder.configure(mediaFormat, play_surf, null, 0);
+
+        XposedBridge.log("[VCAM] [DEBUG] About to configure decoder with surface: " + (play_surf != null ? play_surf.toString() : "null"));
+        XposedBridge.log("[VCAM] [DEBUG] MediaFormat for configure: " + mediaFormat.toString());
+
+        try {
+            decoder.configure(mediaFormat, play_surf, null, 0);
+            XposedBridge.log("[VCAM] [DEBUG] Decoder configured successfully");
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [ERROR] Failed to configure decoder: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            throw e;
+        }
+
         boolean sawInputEOS = false;
         boolean sawOutputEOS = false;
-        decoder.start();
+
+        try {
+            decoder.start();
+            XposedBridge.log("[VCAM] [DEBUG] Decoder started successfully");
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [ERROR] Failed to start decoder: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            throw e;
+        }
         final int width = mediaFormat.getInteger(MediaFormat.KEY_WIDTH);
         final int height = mediaFormat.getInteger(MediaFormat.KEY_HEIGHT);
         int outputFrameCount = 0;
@@ -207,7 +243,7 @@ public class VideoToFrames implements Runnable {
                             try {
                                 mQueue.put(arr);
                             } catch (InterruptedException e) {
-                                XposedBridge.log("【VCAM】" + e.toString());
+                                XposedBridge.log("[VCAM] " + e.toString());
                             }
                         }
                         if (outputImageFormat != null) {
@@ -220,8 +256,8 @@ public class VideoToFrames implements Runnable {
                         try {
                             Thread.sleep(sleepTime);
                         } catch (InterruptedException e) {
-                            XposedBridge.log("【VCAM】" + e.toString());
-                            XposedBridge.log("【VCAM】线程延迟出错");
+                            XposedBridge.log("[VCAM] " + e.toString());
+                            XposedBridge.log("[VCAM] Thread delay error");
                         }
                     }
                     decoder.releaseOutputBuffer(outputBufferId, true);
@@ -339,21 +375,6 @@ public class VideoToFrames implements Runnable {
     }
 
 
-}
-
-enum OutputImageFormat {
-    I420("I420"),
-    NV21("NV21"),
-    JPEG("JPEG");
-    private final String friendlyName;
-
-    OutputImageFormat(String friendlyName) {
-        this.friendlyName = friendlyName;
-    }
-
-    public String toString() {
-        return friendlyName;
-    }
 }
 
 

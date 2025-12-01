@@ -1,12 +1,9 @@
 package com.example.vcam;
 
-
 import android.Manifest;
 import android.app.Application;
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.SurfaceTexture;
@@ -25,6 +22,9 @@ import android.os.Handler;
 import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.widget.Toast;
+
+import com.example.vcam.OutputImageFormat;
+import com.example.vcam.VideoToFrames;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -87,6 +87,7 @@ public class HookMain implements IXposedHookLoadPackage {
     public static SessionConfiguration sessionConfiguration;
     public static OutputConfiguration outputConfiguration;
     public boolean need_to_show_toast = true;
+    private static boolean isSettingUpMediaPlayer = false;
 
     public int c2_ori_width = 1280;
     public int c2_ori_height = 720;
@@ -95,10 +96,20 @@ public class HookMain implements IXposedHookLoadPackage {
     public Context toast_content;
 
     public void handleLoadPackage(final XC_LoadPackage.LoadPackageParam lpparam) throws Exception {
+        // Debug logging for package initialization
+        XposedBridge.log("[VCAM] [DEBUG] Loading hooks for package: " + lpparam.packageName);
+
+        // Special debug mode for Snapchat
+        boolean isSnapchat = lpparam.packageName.equals("com.snapchat.android");
+        if (isSnapchat) {
+            XposedBridge.log("[VCAM] [SNAPCHAT] Initializing hooks for Snapchat - enabling enhanced debugging");
+        }
         XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "setPreviewTexture", SurfaceTexture.class, new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
+                XposedBridge.log("[VCAM] [DEBUG] " + lpparam.packageName + " called setPreviewTexture");
                 File file = new File(video_path + "virtual.mp4");
+                XposedBridge.log("[VCAM] [DEBUG] " + lpparam.packageName + " checking virtual.mp4 at: " + file.getAbsolutePath() + " exists: " + file.exists() + " canRead: " + file.canRead());
                 if (file.exists()) {
                     File control_file = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "disable.jpg");
                     if (control_file.exists()){
@@ -136,9 +147,9 @@ public class HookMain implements IXposedHookLoadPackage {
                     need_to_show_toast = !toast_control.exists();
                     if (toast_content != null && need_to_show_toast) {
                         try {
-                            Toast.makeText(toast_content, "Virtual video file not found\n" + lpparam.packageName + "\nPath:" + video_path, Toast.LENGTH_SHORT).show();
+                            Toast.makeText(toast_content, "Virtual video file not found\n" + lpparam.packageName + "\nPath: " + video_path, Toast.LENGTH_SHORT).show();
                         } catch (Exception ee) {
-                            XposedBridge.log("【VCAM】[toast]" + ee.toString());
+                            XposedBridge.log("[VCAM] [toast]" + ee.toString());
                         }
                     }
                 }
@@ -148,6 +159,7 @@ public class HookMain implements IXposedHookLoadPackage {
         XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader, "openCamera", String.class, CameraDevice.StateCallback.class, Handler.class, new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called Camera2 openCamera (3-param)");
                 if (param.args[1] == null) {
                     return;
                 }
@@ -166,7 +178,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 if (!file.exists()) {
                     if (toast_content != null && need_to_show_toast) {
                         try {
-                            Toast.makeText(toast_content, "Virtual video file not found\n" + lpparam.packageName + "当前路径：" + video_path, Toast.LENGTH_SHORT).show();
+                            Toast.makeText(toast_content, "Virtual video file not found\n" + lpparam.packageName + "\nPath: " + video_path, Toast.LENGTH_SHORT).show();
                         } catch (Exception ee) {
                             XposedBridge.log("[VCAM] [toast]" + ee.toString());
                         }
@@ -184,6 +196,7 @@ public class HookMain implements IXposedHookLoadPackage {
             XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader, "openCamera", String.class, Executor.class, CameraDevice.StateCallback.class, new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called Camera2 openCamera (3-param with Executor)");
                     if (param.args[2] == null) {
                         return;
                     }
@@ -209,7 +222,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         return;
                     }
                     c2_state_callback = param.args[2].getClass();
-                    XposedBridge.log("[VCAM] [DEBUG] " + lpparam.packageName + " - 2-param camera initialization, class: " + c2_state_callback.toString());
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " - 2-param camera initialization, class: " + c2_state_callback.toString());
                     is_first_hook_build = true;
                     process_camera2_init(c2_state_callback);
                 }
@@ -326,18 +339,18 @@ public class HookMain implements IXposedHookLoadPackage {
                             }
                             shown_file = new File(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/" + "has_shown");
                             File toast_force_file = new File(Environment.getExternalStorageDirectory().getPath()+ "/DCIM/Camera1/force_show.jpg");
-                            if ((!lpparam.packageName.equals(BuildConfig.APPLICATION_ID)) && ((!shown_file.exists()) || toast_force_file.exists())) {
-                                try {
-                                    Toast.makeText(toast_content, lpparam.packageName + " has not granted local directory read permission, please check permissions\nCamera1 is currently redirected to " + toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/", Toast.LENGTH_SHORT).show();
-                                    FileOutputStream fos = new FileOutputStream(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/" + "has_shown");
-                                    String info = "shown";
-                                    fos.write(info.getBytes());
-                                    fos.flush();
-                                    fos.close();
-                                } catch (Exception e) {
-                                    XposedBridge.log("[VCAM] [switch-dir]" + e.toString());
-                                }
-                            }
+//                            if ((!lpparam.packageName.equals(BuildConfig.APPLICATION_ID)) && ((!shown_file.exists()) || toast_force_file.exists())) {
+//                                try {
+//                                    Toast.makeText(toast_content, lpparam.packageName + " has not granted local directory read permission, please check permissions\nCamera1 is currently redirected to " + toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/", Toast.LENGTH_SHORT).show();
+//                                    FileOutputStream fos = new FileOutputStream(toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/" + "has_shown");
+//                                    String info = "shown";
+//                                    fos.write(info.getBytes());
+//                                    fos.flush();
+//                                    fos.close();
+//                                } catch (Exception e) {
+//                                    XposedBridge.log("[VCAM] [switch-dir]" + e.toString());
+//                                }
+//                            }
                             video_path = toast_content.getExternalFilesDir(null).getAbsolutePath() + "/Camera1/";
                         }else {
                             video_path = Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/";
@@ -352,6 +365,7 @@ public class HookMain implements IXposedHookLoadPackage {
                             }
                         }
                     }
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " final video_path resolved to: " + video_path);
                 }
             }
         });
@@ -472,7 +486,7 @@ public class HookMain implements IXposedHookLoadPackage {
                         try {
                             Toast.makeText(toast_content, "Virtual video file not found\n" + lpparam.packageName + "\nPath: " + video_path, Toast.LENGTH_SHORT).show();
                         } catch (Exception ee) {
-                            XposedBridge.log("[VCAM] [toast]" + ee.toString());
+                            XposedBridge.log("【VCAM】[toast]" + ee.toString());
                         }
                     }
                     return;
@@ -507,6 +521,7 @@ public class HookMain implements IXposedHookLoadPackage {
         XposedHelpers.findAndHookMethod("android.hardware.camera2.CaptureRequest.Builder", lpparam.classLoader, "addTarget", Surface.class, new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) {
+                XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called addTarget: " + (param.args[0] != null ? param.args[0].toString() : "null"));
 
                 if (param.args[0] == null) {
                     return;
@@ -527,6 +542,10 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                     return;
                 }
+                if (c2_virtual_surface == null) {
+                    create_virtual_surface();
+                }
+
                 if (param.args[0].equals(c2_virtual_surface)) {
                     return;
                 }
@@ -535,25 +554,43 @@ public class HookMain implements IXposedHookLoadPackage {
                     return;
                 }
                 String surfaceInfo = param.args[0].toString();
-                if (surfaceInfo.contains("Surface(name=null)")) {
+                XposedBridge.log("[VCAM] [DEBUG] Surface analysis: " + surfaceInfo + " - imageReaderFormat: " + imageReaderFormat);
+
+                // For apps that use JPEG format (256), treat surfaces as preview surfaces
+                if (surfaceInfo.contains("Surface(name=null)") && imageReaderFormat != 256) {
                     if (c2_reader_Surfcae == null) {
                         c2_reader_Surfcae = (Surface) param.args[0];
+                        XposedBridge.log("[VCAM] [DEBUG] Assigned to c2_reader_Surfcae");
                     } else {
                         if ((!c2_reader_Surfcae.equals(param.args[0])) && c2_reader_Surfcae_1 == null) {
                             c2_reader_Surfcae_1 = (Surface) param.args[0];
+                            XposedBridge.log("[VCAM] [DEBUG] Assigned to c2_reader_Surfcae_1");
                         }
                     }
                 } else {
+                    // Treat as preview surface
                     if (c2_preview_Surfcae == null) {
                         c2_preview_Surfcae = (Surface) param.args[0];
+                        XposedBridge.log("[VCAM] [DEBUG] Assigned to c2_preview_Surfcae (JPEG or named surface)");
                     } else {
                         if ((!c2_preview_Surfcae.equals(param.args[0])) && c2_preview_Surfcae_1 == null) {
                             c2_preview_Surfcae_1 = (Surface) param.args[0];
+                            XposedBridge.log("[VCAM] [DEBUG] Assigned to c2_preview_Surfcae_1");
                         }
                     }
                 }
                 XposedBridge.log("[VCAM] Adding target: " + param.args[0].toString());
                 param.args[0] = c2_virtual_surface;
+
+                // Process camera2 play with a slight delay to ensure surfaces are properly set up
+                // This ensures MediaPlayer setup happens at the right time
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        XposedBridge.log("[VCAM] [DEBUG] Delayed triggering process_camera2_play from addTarget");
+                        process_camera2_play();
+                    }
+                }, 100); // 100ms delay
 
             }
         });
@@ -606,6 +643,7 @@ public class HookMain implements IXposedHookLoadPackage {
         XposedHelpers.findAndHookMethod("android.hardware.camera2.CaptureRequest.Builder", lpparam.classLoader, "build", new XC_MethodHook() {
             @Override
             protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called CaptureRequest.Builder.build()");
                 if (param.thisObject == null) {
                     return;
                 }
@@ -653,7 +691,7 @@ public class HookMain implements IXposedHookLoadPackage {
                     }
                     is_someone_playing = false;
 
-                    XposedBridge.log("停止预览");
+                    XposedBridge.log("[VCAM] Stop preview");
                 }
             }
         });*/
@@ -686,9 +724,72 @@ public class HookMain implements IXposedHookLoadPackage {
 
                     }
                 });
+
+        // Add hook to detect Camera.open() calls that might be missed
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "open", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called Camera.open() - result: " + (param.getResult() != null ? "success" : "null"));
+                }
+            });
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [DEBUG] Could not hook Camera.open(): " + e.getMessage());
+        }
+
+        // Add hook to detect Camera.open(int) calls
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.Camera", lpparam.classLoader, "open", int.class, new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called Camera.open(int) with cameraId: " + param.args[0] + " - result: " + (param.getResult() != null ? "success" : "null"));
+                }
+            });
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [DEBUG] Could not hook Camera.open(int): " + e.getMessage());
+        }
+
+        // Add hook to detect CameraManager.getCameraIdList() calls
+        try {
+            XposedHelpers.findAndHookMethod("android.hardware.camera2.CameraManager", lpparam.classLoader, "getCameraIdList", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
+                    String[] cameraIds = (String[]) param.getResult();
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " called getCameraIdList() - found " + (cameraIds != null ? cameraIds.length : 0) + " cameras");
+                }
+            });
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [DEBUG] Could not hook getCameraIdList(): " + e.getMessage());
+        }
+
+        // Hook Surface.release() to detect if Snapchat is releasing surfaces unexpectedly
+        try {
+            XposedHelpers.findAndHookMethod("android.view.Surface", lpparam.classLoader, "release", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                    XposedBridge.log("[VCAM] [DEBUG]" + lpparam.packageName + " is releasing surface: " + param.thisObject.toString());
+                    if (lpparam.packageName.equals("com.snapchat.android")) {
+                        XposedBridge.log("[VCAM] [SNAPCHAT] Surface being released - this might cause issues if it's the virtual surface");
+                    }
+                }
+            });
+        } catch (Exception e) {
+            XposedBridge.log("[VCAM] [DEBUG] Could not hook Surface.release(): " + e.getMessage());
+        }
     }
 
     private void process_camera2_play() {
+        if (isSettingUpMediaPlayer) {
+            XposedBridge.log("[VCAM] [DEBUG] MediaPlayer setup already in progress, skipping");
+            return;
+        }
+
+        XposedBridge.log("[VCAM] [DEBUG] process_camera2_play() called - c2_reader_Surfcae: " + (c2_reader_Surfcae != null) +
+                ", c2_reader_Surfcae_1: " + (c2_reader_Surfcae_1 != null) +
+                ", c2_preview_Surfcae: " + (c2_preview_Surfcae != null) +
+                ", c2_preview_Surfcae_1: " + (c2_preview_Surfcae_1 != null));
+
+        isSettingUpMediaPlayer = true;
 
         if (c2_reader_Surfcae != null) {
             if (c2_hw_decode_obj != null) {
@@ -706,7 +807,7 @@ public class HookMain implements IXposedHookLoadPackage {
                 c2_hw_decode_obj.set_surfcae(c2_reader_Surfcae);
                 c2_hw_decode_obj.decode(video_path + "virtual.mp4");
             } catch (Throwable throwable) {
-                XposedBridge.log("[VCAM] " + throwable);
+                XposedBridge.log("[VCAM]" + throwable);
             }
         }
 
@@ -726,62 +827,243 @@ public class HookMain implements IXposedHookLoadPackage {
                 c2_hw_decode_obj_1.set_surfcae(c2_reader_Surfcae_1);
                 c2_hw_decode_obj_1.decode(video_path + "virtual.mp4");
             } catch (Throwable throwable) {
-                XposedBridge.log("[VCAM] " + throwable);
+                XposedBridge.log("[VCAM]" + throwable);
             }
         }
 
 
         if (c2_preview_Surfcae != null) {
-            if (c2_player == null) {
-                c2_player = new MediaPlayer();
-            } else {
-                c2_player.release();
-                c2_player = new MediaPlayer();
-            }
-            c2_player.setSurface(c2_preview_Surfcae);
-            File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
-            if (!sfile.exists()) {
-                c2_player.setVolume(0, 0);
-            }
-            c2_player.setLooping(true);
+            XposedBridge.log("[VCAM] [DEBUG] Setting up video decode for c2_preview_Surfcae: " + c2_preview_Surfcae.toString());
 
-            try {
-                c2_player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                    public void onPrepared(MediaPlayer mp) {
-                        c2_player.start();
+            // For JPEG format surfaces, use VideoToFrames instead of MediaPlayer
+            // since MediaPlayer can't directly output to ImageReader surfaces
+            if (imageReaderFormat == 256) {
+                XposedBridge.log("[VCAM] [DEBUG] Using VideoToFrames for JPEG format surface");
+
+                if (c2_hw_decode_obj != null) {
+                    c2_hw_decode_obj.stopDecode();
+                    c2_hw_decode_obj = null;
+                }
+
+                c2_hw_decode_obj = new VideoToFrames();
+                try {
+                    File videoFile = new File(video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG] Video file for VideoToFrames - exists: " + videoFile.exists() +
+                            " canRead: " + videoFile.canRead() + " length: " + videoFile.length() +
+                            " path: " + videoFile.getAbsolutePath());
+
+                    c2_hw_decode_obj.setSaveFrames("null", OutputImageFormat.JPEG);
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames setSaveFrames completed");
+
+                    c2_hw_decode_obj.set_surfcae(c2_preview_Surfcae);
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames surface set completed");
+
+                    c2_hw_decode_obj.decode(video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames decode started successfully");
+                } catch (Throwable throwable) {
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames error for c2_preview_Surfcae: " + throwable.getClass().getSimpleName() + " - " + throwable.getMessage());
+
+                    // Print stack trace for debugging
+                    StackTraceElement[] stackTrace = throwable.getStackTrace();
+                    for (int i = 0; i < Math.min(stackTrace.length, 8); i++) {
+                        XposedBridge.log("[VCAM] [Stack]" + stackTrace[i].toString());
                     }
-                });
-                c2_player.setDataSource(video_path + "virtual.mp4");
-                c2_player.prepare();
-            } catch (Exception e) {
-                XposedBridge.log("[VCAM] [c2player][" + c2_preview_Surfcae.toString() + "]" + e);
+                }
+            } else {
+                // Use MediaPlayer for non-JPEG surfaces
+                XposedBridge.log("[VCAM] [DEBUG] Using MediaPlayer for non-JPEG format surface");
+                try {
+                    if (c2_player != null) {
+                        try {
+                            if (c2_player.isPlaying()) {
+                                c2_player.stop();
+                            }
+                            c2_player.reset();
+                            c2_player.release();
+                        } catch (Exception e) {
+                            XposedBridge.log("[VCAM] [DEBUG] Error cleaning up old MediaPlayer: " + e.getMessage());
+                        }
+                        c2_player = null;
+                    }
+
+                    // Check if surface is valid before setting it
+                    if (!c2_preview_Surfcae.isValid()) {
+                        XposedBridge.log("[VCAM] [DEBUG] c2_preview_Surfcae is not valid, skipping MediaPlayer setup");
+                    } else {
+                        // Create new MediaPlayer
+                        c2_player = new MediaPlayer();
+                        XposedBridge.log("[VCAM] [DEBUG] Created new MediaPlayer instance");
+
+                        // Set up error listener first
+                        c2_player.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                            public boolean onError(MediaPlayer mp, int what, int extra) {
+                                XposedBridge.log("[VCAM] [DEBUG] MediaPlayer error - what: " + what + " extra: " + extra);
+                                return false;
+                            }
+                        });
+
+                        // Set data source first, then surface
+                        File videoFile = new File(video_path + "virtual.mp4");
+                        XposedBridge.log("[VCAM] [DEBUG] Video file exists: " + videoFile.exists() + " canRead: " + videoFile.canRead() + " length: " + videoFile.length());
+
+                        c2_player.setDataSource(video_path + "virtual.mp4");
+                        XposedBridge.log("[VCAM] [DEBUG] DataSource set successfully");
+
+                        c2_player.setSurface(c2_preview_Surfcae);
+                        XposedBridge.log("[VCAM] [DEBUG] Surface set successfully");
+
+                        File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
+                        if (!sfile.exists()) {
+                            c2_player.setVolume(0, 0);
+                        }
+                        c2_player.setLooping(true);
+
+                        XposedBridge.log("[VCAM] [DEBUG] About to call prepare() for c2_player");
+
+                        c2_player.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                            public void onPrepared(MediaPlayer mp) {
+                                XposedBridge.log("[VCAM] [DEBUG] c2_player prepared and starting");
+                                try {
+                                    c2_player.start();
+                                    XposedBridge.log("[VCAM] [DEBUG] c2_player started successfully");
+                                } catch (Exception e) {
+                                    XposedBridge.log("[VCAM] [DEBUG] Failed to start MediaPlayer: " + e.getMessage());
+                                    e.printStackTrace();
+                                }
+                            }
+                        });
+
+                        // Try synchronous prepare instead of async
+                        c2_player.prepare();
+                        XposedBridge.log("[VCAM] [DEBUG]MediaPlayer prepare() completed for c2_preview_Surfcae");
+                    }
+                } catch (Exception e) {
+                    XposedBridge.log("[VCAM] [ERROR] c2player error [" + c2_preview_Surfcae.toString() + "]: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+                    XposedBridge.log("[VCAM] [DEBUG]Video file path: " + video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG] Surface valid: " + c2_preview_Surfcae.isValid());
+                    XposedBridge.log("[VCAM] [DEBUG] MediaPlayer state when error occurred: " + (c2_player != null ? "exists" : "null"));
+
+                    // Print full stack trace for debugging
+                    StackTraceElement[] stackTrace = e.getStackTrace();
+                    for (int i = 0; i < Math.min(stackTrace.length, 10); i++) {
+                        XposedBridge.log("[VCAM] [STACK]" + stackTrace[i].toString());
+                    }
+                }
             }
         }
 
         if (c2_preview_Surfcae_1 != null) {
-            if (c2_player_1 == null) {
-                c2_player_1 = new MediaPlayer();
-            } else {
-                c2_player_1.release();
-                c2_player_1 = new MediaPlayer();
-            }
-            c2_player_1.setSurface(c2_preview_Surfcae_1);
-            File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
-            if (!sfile.exists()) {
-                c2_player_1.setVolume(0, 0);
-            }
-            c2_player_1.setLooping(true);
+            XposedBridge.log("[VCAM] [DEBUG] Setting up video decode for c2_preview_Surfcae_1: " + c2_preview_Surfcae_1.toString());
 
-            try {
-                c2_player_1.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
-                    public void onPrepared(MediaPlayer mp) {
-                        c2_player_1.start();
+            // For JPEG format surfaces, use VideoToFrames instead of MediaPlayer
+            if (imageReaderFormat == 256) {
+                XposedBridge.log("[VCAM] [DEBUG] Using VideoToFrames for JPEG format surface_1");
+
+                if (c2_hw_decode_obj_1 != null) {
+                    c2_hw_decode_obj_1.stopDecode();
+                    c2_hw_decode_obj_1 = null;
+                }
+
+                c2_hw_decode_obj_1 = new VideoToFrames();
+                try {
+                    File videoFile = new File(video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG]Video file for VideoToFrames_1 - exists: " + videoFile.exists() +
+                            " canRead: " + videoFile.canRead() + " length: " + videoFile.length());
+
+                    c2_hw_decode_obj_1.setSaveFrames("null", OutputImageFormat.JPEG);
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames_1 setSaveFrames completed");
+
+                    c2_hw_decode_obj_1.set_surfcae(c2_preview_Surfcae_1);
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames_1 surface set completed");
+
+                    c2_hw_decode_obj_1.decode(video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames_1 decode started successfully");
+                } catch (Throwable throwable) {
+                    XposedBridge.log("[VCAM] [DEBUG] VideoToFrames error for c2_preview_Surfcae_1: " + throwable.getClass().getSimpleName() + " - " + throwable.getMessage());
+
+                    // Print stack trace for debugging
+                    StackTraceElement[] stackTrace = throwable.getStackTrace();
+                    for (int i = 0; i < Math.min(stackTrace.length, 8); i++) {
+                        XposedBridge.log("[VCAM] [DEBUG] " + stackTrace[i].toString());
                     }
-                });
-                c2_player_1.setDataSource(video_path + "virtual.mp4");
-                c2_player_1.prepare();
-            } catch (Exception e) {
-                XposedBridge.log("[VCAM] [c2player1]" + "[ " + c2_preview_Surfcae_1.toString() + "]" + e);
+                }
+            } else {
+                // Use MediaPlayer for non-JPEG surfaces
+                XposedBridge.log("[VCAM] [DEBUG] Using MediaPlayer for non-JPEG format surface_1");
+                try {
+                    // Properly clean up existing MediaPlayer
+                    if (c2_player_1 != null) {
+                        try {
+                            if (c2_player_1.isPlaying()) {
+                                c2_player_1.stop();
+                            }
+                            c2_player_1.reset();
+                            c2_player_1.release();
+                        } catch (Exception e) {
+                            XposedBridge.log("[VCAM] [DEBUG] Error cleaning up old MediaPlayer_1: " + e.getMessage());
+                        }
+                        c2_player_1 = null;
+                    }
+
+                    if (!c2_preview_Surfcae_1.isValid()) {
+                        XposedBridge.log("[VCAM] [DEBUG] c2_preview_Surfcae_1 is not valid, skipping MediaPlayer setup");
+                    } else {
+                        // Create new MediaPlayer
+                        c2_player_1 = new MediaPlayer();
+                        XposedBridge.log("[VCAM] [DEBUG] Created new MediaPlayer_1 instance");
+
+                        // Set up error listener first
+                        c2_player_1.setOnErrorListener(new MediaPlayer.OnErrorListener() {
+                            public boolean onError(MediaPlayer mp, int what, int extra) {
+                                XposedBridge.log("[VCAM] [DEBUG] MediaPlayer_1 error - what: " + what + " extra: " + extra);
+                                return false;
+                            }
+                        });
+
+                        // Set data source first, then surface
+                        c2_player_1.setDataSource(video_path + "virtual.mp4");
+                        XposedBridge.log("[VCAM] [DEBUG] DataSource set successfully for MediaPlayer_1");
+
+                        c2_player_1.setSurface(c2_preview_Surfcae_1);
+                        XposedBridge.log("[VCAM] [DEBUG] Surface set successfully for MediaPlayer_1");
+
+                        File sfile = new File(Environment.getExternalStorageDirectory().getPath() + "/DCIM/Camera1/" + "no-silent.jpg");
+                        if (!sfile.exists()) {
+                            c2_player_1.setVolume(0, 0);
+                        }
+                        c2_player_1.setLooping(true);
+
+                        XposedBridge.log("[VCAM] [DEBUG] About to call prepare() for c2_player_1");
+
+                        c2_player_1.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                            public void onPrepared(MediaPlayer mp) {
+                                XposedBridge.log("[VCAM] [DEBUG] c2_player_1 prepared and starting");
+                                try {
+                                    c2_player_1.start();
+                                    XposedBridge.log("[VCAM] [DEBUG] c2_player_1 started successfully");
+                                } catch (Exception e) {
+                                    XposedBridge.log("[VCAM] [DEBUG] Failed to start MediaPlayer_1: " + e.getMessage());
+                                    e.printStackTrace();
+                                }
+                            }
+                        });
+
+                        // Try synchronous prepare instead of async
+                        c2_player_1.prepare();
+                        XposedBridge.log("[VCAM] [DEBUG] MediaPlayer_1 prepare() completed for c2_preview_Surfcae_1");
+                    }
+                } catch (Exception e) {
+                    XposedBridge.log("[VCAM] [ERROR] c2player1 error [" + c2_preview_Surfcae_1.toString() + "]: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+                    XposedBridge.log("[VCAM] [DEBUG] Video file path: " + video_path + "virtual.mp4");
+                    XposedBridge.log("[VCAM] [DEBUG] Surface valid: " + c2_preview_Surfcae_1.isValid());
+                    XposedBridge.log("[VCAM] [DEBUG] MediaPlayer_1 state when error occurred: " + (c2_player_1 != null ? "exists" : "null"));
+
+                    // Print full stack trace for debugging
+                    StackTraceElement[] stackTrace = e.getStackTrace();
+                    for (int i = 0; i < Math.min(stackTrace.length, 10); i++) {
+                        XposedBridge.log("【VCAM】【STACK】" + stackTrace[i].toString());
+                    }
+                }
             }
         }
         XposedBridge.log("[VCAM] Camera2 processing fully executed\"");
@@ -800,6 +1082,7 @@ public class HookMain implements IXposedHookLoadPackage {
             c2_virtual_surfaceTexture = new SurfaceTexture(15);
             c2_virtual_surface = new Surface(c2_virtual_surfaceTexture);
             need_recreate = false;
+            XposedBridge.log("[VCAM] [DEBUG] Created new virtual surface: " + c2_virtual_surface.toString());
         } else {
             if (c2_virtual_surface == null) {
                 need_recreate = true;
@@ -918,19 +1201,19 @@ public class HookMain implements IXposedHookLoadPackage {
                 }
 
 
-                    XposedHelpers.findAndHookMethod(param.args[0].getClass(), "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            super.beforeHookedMethod(param);
-                            if (param.args[0] != null) {
-                                param.args[0] = Arrays.asList(c2_virtual_surface);
-                                XposedBridge.log("[VCAM] Executed createConstrainedHighSpeedCaptureSession -5484987");
-                                if (param.args[1] != null) {
-                                    process_camera2Session_callback((CameraCaptureSession.StateCallback) param.args[1]);
-                                }
+                XposedHelpers.findAndHookMethod(param.args[0].getClass(), "createConstrainedHighSpeedCaptureSession", List.class, CameraCaptureSession.StateCallback.class, Handler.class, new XC_MethodHook() {
+                    @Override
+                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+                        super.beforeHookedMethod(param);
+                        if (param.args[0] != null) {
+                            param.args[0] = Arrays.asList(c2_virtual_surface);
+                            XposedBridge.log("[VCAM] Executed createConstrainedHighSpeedCaptureSession -5484987");
+                            if (param.args[1] != null) {
+                                process_camera2Session_callback((CameraCaptureSession.StateCallback) param.args[1]);
                             }
                         }
-                    });
+                    }
+                });
 
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1183,7 +1466,7 @@ public class HookMain implements IXposedHookLoadPackage {
 
 
 
-    //以下代码来源：https://blog.csdn.net/jacke121/article/details/73888732
+    // The following code is from: https://blog.csdn.net/jacke121/article/details/73888732
     private Bitmap getBMP(String file) throws Throwable {
         return BitmapFactory.decodeFile(file);
     }
@@ -1199,14 +1482,14 @@ public class HookMain implements IXposedHookLoadPackage {
                 int r = rgb & 0xFF;
                 int g = (rgb >> 8) & 0xFF;
                 int b = (rgb >> 16) & 0xFF;
-                // 套用公式
+                // Apply formula
                 y = ((66 * r + 129 * g + 25 * b + 128) >> 8) + 16;
                 u = ((-38 * r - 74 * g + 112 * b + 128) >> 8) + 128;
                 v = ((112 * r - 94 * g - 18 * b + 128) >> 8) + 128;
                 y = y < 16 ? 16 : (Math.min(y, 255));
                 u = u < 0 ? 0 : (Math.min(u, 255));
                 v = v < 0 ? 0 : (Math.min(v, 255));
-                // 赋值
+                // Assignment
                 yuv[i * width + j] = (byte) y;
                 yuv[len + (i >> 1) * width + (j & ~1)] = (byte) u;
                 yuv[len + +(i >> 1) * width + (j & ~1) + 1] = (byte) v;
