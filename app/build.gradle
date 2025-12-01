@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace "com.example.vcam"
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "com.example.vcam"
         minSdk 21
-        targetSdk 26
+        targetSdk 33
         versionCode 28
         versionName "4.4"
 
