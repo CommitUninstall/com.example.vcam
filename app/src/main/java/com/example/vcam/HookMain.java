@@ -1067,6 +1067,7 @@ public class HookMain implements IXposedHookLoadPackage {
             }
         }
         XposedBridge.log("[VCAM] Camera2 processing fully executed\"");
+        isSettingUpMediaPlayer = false;
     }
 
     private Surface create_virtual_surface() {
@@ -1441,27 +1442,27 @@ public class HookMain implements IXposedHookLoadPackage {
         if (callback_calss == null){
             return;
         }
-        XposedHelpers.findAndHookMethod(callback_calss.getClass(), "onConfigureFailed", CameraCaptureSession.class, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                XposedBridge.log("[VCAM] onConfigureFailed: " + param.args[0].toString());
-            }
-
-        });
-
-        XposedHelpers.findAndHookMethod(callback_calss.getClass(), "onConfigured", CameraCaptureSession.class, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                XposedBridge.log("[VCAM] onConfigured: " + param.args[0].toString());
-            }
-        });
-
-        XposedHelpers.findAndHookMethod( callback_calss.getClass(), "onClosed", CameraCaptureSession.class, new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                XposedBridge.log("[VCAM] onClosed: " + param.args[0].toString());
-            }
-        });
+//        XposedHelpers.findAndHookMethod(callback_calss.getClass(), "onConfigureFailed", CameraCaptureSession.class, new XC_MethodHook() {
+//            @Override
+//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+//                XposedBridge.log("[VCAM] onConfigureFailed: " + param.args[0].toString());
+//            }
+//
+//        });
+//
+//        XposedHelpers.findAndHookMethod(callback_calss.getClass(), "onConfigured", CameraCaptureSession.class, new XC_MethodHook() {
+//            @Override
+//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+//                XposedBridge.log("[VCAM] onConfigured: " + param.args[0].toString());
+//            }
+//        });
+//
+//        XposedHelpers.findAndHookMethod( callback_calss.getClass(), "onClosed", CameraCaptureSession.class, new XC_MethodHook() {
+//            @Override
+//            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
+//                XposedBridge.log("[VCAM] onClosed: " + param.args[0].toString());
+//            }
+//        });
     }
 
 
